@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from pytest import fixture, mark, raises
 from qdrant_client.async_qdrant_client import AsyncQdrantClient
-from qdrant_client.models import Datatype, Distance, FieldCondition, MatchValue, VectorParams
+from qdrant_client.models import Datatype, Distance, FieldCondition, Filter, MatchValue, VectorParams
 
 from semantic_kernel.connectors.qdrant import QdrantCollection, QdrantStore
 from semantic_kernel.data.vector import DistanceFunction, VectorStoreField
@@ -109,12 +109,13 @@ def mock_delete():
 
 @fixture(autouse=True)
 def mock_search():
-    with patch(f"{BASE_PATH}.search") as mock_search:
+    with patch(f"{BASE_PATH}.query_points") as mock_search:
+        from qdrant_client.http.models import QueryResponse
         from qdrant_client.models import ScoredPoint
 
         response1 = ScoredPoint(id="id1", version=1, score=0.0, payload={"content": "content"})
         response2 = ScoredPoint(id="id2", version=1, score=0.0, payload={"content": "content"})
-        mock_search.return_value = [response1, response2]
+        mock_search.return_value = QueryResponse(points=[response1, response2])
         yield mock_search
 
 
@@ -285,7 +286,8 @@ async def test_search(collection, mock_search):
     assert mock_search.call_count == 1
     mock_search.assert_called_with(
         collection_name="test",
-        query_vector=[1.0, 2.0, 3.0],
+        query=[1.0, 2.0, 3.0],
+        using=None,
         query_filter=None,
         with_vectors=False,
         limit=3,
@@ -307,7 +309,8 @@ async def test_search_named_vectors(collection, mock_search):
     assert mock_search.call_count == 1
     mock_search.assert_called_with(
         collection_name="test",
-        query_vector=("vector", [1.0, 2.0, 3.0]),
+        query=[1.0, 2.0, 3.0],
+        using="vector",
         query_filter=None,
         with_vectors=False,
         limit=3,
@@ -328,12 +331,43 @@ async def test_search_filter(collection, mock_search):
     assert mock_search.call_count == 1
     mock_search.assert_called_with(
         collection_name="test",
-        query_vector=("vector", [1.0, 2.0, 3.0]),
-        query_filter=FieldCondition(key="id", match=MatchValue(value="id1")),
+        query=[1.0, 2.0, 3.0],
+        using="vector",
+        query_filter=Filter(must=[FieldCondition(key="id", match=MatchValue(value="id1"))]),
         with_vectors=False,
         limit=3,
         offset=0,
     )
+
+
+async def test_search_multiple_filters(collection, mock_search):
+    await collection.search(
+        vector=[1.0, 2.0, 3.0],
+        include_vectors=False,
+        filter=["lambda x: x.id == 'id1'", "lambda x: x.id != 'id2'"],
+    )
+
+    assert mock_search.call_args.kwargs["query_filter"] == Filter(
+        must=[
+            FieldCondition(key="id", match=MatchValue(value="id1")),
+            Filter(must_not=[FieldCondition(key="id", match=MatchValue(value="id2"))]),
+        ]
+    )
+
+
+async def test_hybrid_search_filter(collection, mock_search):
+    await collection.hybrid_search(
+        values=["content"],
+        vector=[1.0, 2.0, 3.0],
+        additional_property_name="content",
+        filter="lambda x: x.id == 'id1'",
+    )
+
+    assert mock_search.call_count == 1
+    dense, keywords = mock_search.call_args.kwargs["prefetch"]
+    id_condition = FieldCondition(key="id", match=MatchValue(value="id1"))
+    assert dense.filter == Filter(must=[id_condition])
+    assert keywords.filter.must[0] == id_condition
 
 
 async def test_search_fail(collection):

@@ -274,8 +274,6 @@ class QdrantCollection(
         vector: Sequence[float | int] | None = None,
         **kwargs: Any,
     ) -> KernelSearchResults[VectorSearchResult[TModel]]:
-        query_vector: tuple[str, Sequence[float | int]] | Sequence[float | int] | None = None
-
         if not vector:
             vector = await self._generate_vector_from_values(values, options)
 
@@ -287,19 +285,28 @@ class QdrantCollection(
             raise VectorStoreOperationException(
                 f"Vector field {options.vector_property_name} not found in data model definition."
             )
-        query_vector = (vector_field.storage_name or vector_field.name, vector) if self.named_vectors else vector
-        filters: Filter | list[Filter] | None = self._build_filter(options.filter)  # type: ignore
-        filter: Filter | None = Filter(must=filters) if filters and isinstance(filters, list) else filters  # type: ignore
+        filters = self._build_filter(options.filter)
+        filter: Filter | None = None
+        if isinstance(filters, list):
+            filter = Filter(must=filters)
+        elif isinstance(filters, Filter):
+            filter = filters
+        elif filters is not None:
+            # a single comparison such as `x.price > 5` is a FieldCondition, but Qdrant expects a Filter here
+            filter = Filter(must=[filters])
         if search_type == SearchType.VECTOR:
-            results = await self.qdrant_client.search(
+            # AsyncQdrantClient.search was removed in qdrant-client 1.16, query_points exists since 1.10.
+            response = await self.qdrant_client.query_points(
                 collection_name=self.collection_name,
-                query_vector=query_vector,  # type: ignore
+                query=vector,  # type: ignore
+                using=(vector_field.storage_name or vector_field.name) if self.named_vectors else None,
                 query_filter=filter,
                 with_vectors=options.include_vectors,
                 limit=options.top,
                 offset=options.skip,
                 **kwargs,
             )
+            results = response.points
         else:
             # Hybrid search: vector + keywords (RRF fusion)
             # 1. Get keywords and text field
