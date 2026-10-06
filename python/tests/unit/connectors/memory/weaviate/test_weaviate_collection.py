@@ -366,6 +366,22 @@ async def test_weaviate_collection_collection_exist_fail(
         await collection.collection_exists()
 
 
+def test_weaviate_collection_build_filter_negative_number(clear_weaviate_env, record_type, definition) -> None:
+    collection = WeaviateCollection(
+        record_type=record_type,
+        definition=definition,
+        collection_name="TestCollection",
+        async_client=AsyncMock(spec=WeaviateAsyncClient),
+        env_file_path="fake_env_file_path.env",
+    )
+
+    result = collection._build_filter("lambda x: x.content > -5")
+
+    assert result.target == "content"
+    assert result.value == -5
+    assert result.operator.name == "GREATER_THAN"
+
+
 async def test_weaviate_collection_serialize_data(
     mock_async_client,
     clear_weaviate_env,

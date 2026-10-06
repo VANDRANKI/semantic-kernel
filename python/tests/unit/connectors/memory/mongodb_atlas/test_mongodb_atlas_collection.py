@@ -82,6 +82,18 @@ async def test_mongodb_atlas_collection_delete(mongodb_atlas_unit_test_env, defi
         mock_get.return_value.delete_many.assert_called_with({"_id": {"$in": ["test_id"]}})
 
 
+def test_mongodb_atlas_collection_build_filter_negative_number(
+    mongodb_atlas_unit_test_env, definition, mock_mongo_client
+):
+    collection = MongoDBAtlasCollection(
+        record_type=dict,
+        definition=definition,
+        collection_name="test_collection",
+        mongo_client=mock_mongo_client,
+    )
+    assert collection._build_filter("lambda x: x.content < -1") == {"content": {"$lt": -1}}
+
+
 async def test_mongodb_atlas_collection_collection_exists(mongodb_atlas_unit_test_env, definition, mock_get_database):
     collection = MongoDBAtlasCollection(
         record_type=dict,

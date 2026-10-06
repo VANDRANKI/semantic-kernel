@@ -5,7 +5,7 @@ import logging
 import operator
 import sys
 from abc import abstractmethod
-from ast import AST, Lambda, NodeVisitor, expr, parse
+from ast import AST, Constant, Lambda, NodeTransformer, NodeVisitor, UnaryOp, USub, copy_location, expr, parse
 from collections.abc import AsyncIterable, Callable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
@@ -712,6 +712,28 @@ class GetFilteredRecordOptions:
     top: int = 10
     skip: int = 0
     order_by: Mapping[str, bool] | None = None
+
+
+class _NegativeNumberFolder(NodeTransformer):
+    """Fold a minus sign on a numeric literal into a single negative constant.
+
+    Python parses ``-5`` as ``UnaryOp(USub, Constant(5))``, and most connector filter parsers do not
+    translate unary operators. This turns it into ``Constant(-5)`` before a parser sees it, so
+    ``lambda x: x.price > -5`` works. Other unary expressions are left for the parser to handle.
+    """
+
+    def visit_UnaryOp(self, node: UnaryOp) -> AST:
+        """Replace a unary minus applied to an int or float literal with a negative constant."""
+        self.generic_visit(node)
+        operand = node.operand
+        if (
+            isinstance(node.op, USub)
+            and isinstance(operand, Constant)
+            and isinstance(operand.value, (int, float))
+            and not isinstance(operand.value, bool)
+        ):
+            return copy_location(Constant(value=-operand.value), node)
+        return node
 
 
 class LambdaVisitor(NodeVisitor, Generic[TFilters]):
@@ -1987,10 +2009,11 @@ class VectorSearch(VectorStoreRecordHandler[TKey, TModel], Generic[TKey, TModel]
         created_filters: list[Any] = []
 
         visitor = LambdaVisitor(self._lambda_parser)
+        folder = _NegativeNumberFolder()
         for filter_ in filters:
             # parse lambda expression with AST
             tree = parse(filter_ if isinstance(filter_, str) else getsource(filter_).strip())
-            visitor.visit(tree)
+            visitor.visit(folder.visit(tree))
         created_filters = visitor.output_filters
         if len(created_filters) == 0:
             raise VectorStoreOperationException("No filter strings found.")

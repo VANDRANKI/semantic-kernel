@@ -268,6 +268,10 @@ async def test_delete(collection):
         )
 
 
+async def test_build_filter_negative_number(collection):
+    assert collection._build_filter("lambda x: x.content >= -2.5") == {"content": {"$gte": -2.5}}
+
+
 async def test_search(collection):
     record = {
         "id": "test_id",

@@ -100,6 +100,11 @@ async def test_chroma_collection_delete(chroma_collection, mock_client):
     mock_client.get_collection().delete.assert_called_once_with(ids=["1"])
 
 
+def test_chroma_collection_build_filter_negative_number(chroma_collection):
+    assert chroma_collection._build_filter("lambda x: x.content > -5") == {"content": {"$gt": -5}}
+    assert chroma_collection._build_filter("lambda x: x.content < -2.5") == {"content": {"$lt": -2.5}}
+
+
 @pytest.mark.parametrize("include_vectors", [True, False])
 async def test_chroma_collection_search(chroma_collection, mock_client, include_vectors):
     mock_client.get_collection().query.return_value = {
