@@ -383,3 +383,54 @@ def test_create_functions_propagates_enable_file_ref_resolution():
             enable_file_ref_resolution=True,
             enable_http_ref_resolution=False,
         )
+
+
+def _path_item_spec() -> dict:
+    return {
+        "openapi": "3.0.0",
+        "info": {"title": "Test", "version": "1.0.0"},
+        "servers": [{"url": "https://api.example.com"}],
+        "paths": {
+            "/items/{id}": {
+                "summary": "An item",
+                "description": "Operations on an item.",
+                "parameters": [
+                    {"name": "id", "in": "path", "required": True, "schema": {"type": "string"}},
+                    {"name": "verbose", "in": "query", "description": "path", "schema": {"type": "boolean"}},
+                ],
+                "get": {
+                    "operationId": "getItem",
+                    "parameters": [
+                        {"name": "verbose", "in": "query", "description": "operation", "schema": {"type": "string"}}
+                    ],
+                    "responses": {"200": {"description": "ok"}},
+                },
+                "delete": {"operationId": "deleteItem", "responses": {"200": {"description": "ok"}}},
+            }
+        },
+    }
+
+
+def test_create_rest_api_operations_ignores_path_item_fields():
+    """Path item fields like summary, description and parameters are not operations."""
+    parser = OpenApiParser()
+    operations = parser.create_rest_api_operations(_path_item_spec())
+
+    assert set(operations) == {"getItem", "deleteItem"}
+    assert operations["getItem"].method == "GET"
+    assert operations["deleteItem"].method == "DELETE"
+
+
+def test_create_rest_api_operations_merges_path_item_parameters():
+    """Parameters defined on the path item apply to every operation, an operation can override them."""
+    parser = OpenApiParser()
+    operations = parser.create_rest_api_operations(_path_item_spec())
+
+    delete_params = {param.name: param for param in operations["deleteItem"].parameters}
+    assert delete_params["id"].is_required
+    assert delete_params["verbose"].description == "path"
+
+    get_params = {param.name: param for param in operations["getItem"].parameters}
+    assert get_params["id"].is_required
+    assert get_params["verbose"].description == "operation"
+    assert [param.name for param in operations["getItem"].parameters].count("verbose") == 1

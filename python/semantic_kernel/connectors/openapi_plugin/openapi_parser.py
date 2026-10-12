@@ -44,6 +44,9 @@ class OpenApiParser:
 
     PAYLOAD_PROPERTIES_HIERARCHY_MAX_DEPTH: int = 10
     SUPPORTED_MEDIA_TYPES: Final[list[str]] = ["application/json", "text/plain"]
+    # The keys of an OpenAPI path item that describe an operation, all other keys
+    # (summary, description, servers, parameters) belong to the path item itself.
+    HTTP_METHODS: Final[tuple[str, ...]] = ("get", "put", "post", "delete", "options", "head", "patch", "trace")
 
     def parse(
         self,
@@ -98,6 +101,20 @@ class OpenApiParser:
                 )
             )
         return result
+
+    @staticmethod
+    def _merge_parameters(
+        path_parameters: list[dict[str, Any]], operation_parameters: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Merge the path item level parameters with the operation level parameters.
+
+        A parameter is identified by its name and location, an operation level parameter overrides
+        a path item level parameter with the same name and location.
+        """
+        overridden = {(param.get("name"), param.get("in")) for param in operation_parameters}
+        return [
+            param for param in path_parameters if (param.get("name"), param.get("in")) not in overridden
+        ] + operation_parameters
 
     def _get_payload_properties(self, operation_id, schema, required_properties, level=0):
         if schema is None:
@@ -250,8 +267,12 @@ class OpenApiParser:
             server_urls = [{"url": "/", "variables": {}, "description": ""}]
 
         for path, methods in paths.items():
+            path_parameters = methods.get("parameters", [])
             for method, details in methods.items():
                 request_method = method.lower()
+                if request_method not in OpenApiParser.HTTP_METHODS:
+                    # Not an operation, but a field of the path item, like `parameters` or `summary`.
+                    continue
                 # Validate that operationId exists
                 if "operationId" not in details:
                     raise PluginInitializationError(f"operationId missing, path: '{path}', method: '{method}'")
@@ -290,7 +311,7 @@ class OpenApiParser:
                     logger.info(f"Skipping operation {operationId} as it is excluded.")
                     continue
 
-                parameters = details.get("parameters", [])
+                parameters = self._merge_parameters(path_parameters, details.get("parameters", []))
                 parsed_params = self._parse_parameters(parameters)
                 request_body = self._create_rest_api_operation_payload(operationId, details.get("requestBody", None))
                 responses = dict(self._create_response(details.get("responses", {})))
