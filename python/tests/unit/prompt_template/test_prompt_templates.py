@@ -7,6 +7,7 @@ import yaml
 from pytest import raises
 
 from semantic_kernel.connectors.ai.prompt_execution_settings import PromptExecutionSettings
+from semantic_kernel.const import DEFAULT_SERVICE_NAME
 from semantic_kernel.functions.kernel_function_from_prompt import KernelFunctionFromPrompt
 from semantic_kernel.functions.kernel_parameter_metadata import KernelParameterMetadata
 from semantic_kernel.prompt_template.input_variable import InputVariable
@@ -60,6 +61,36 @@ def test_add_execution_settings_no_overwrite():
     new_settings = PromptExecutionSettings(service_id="test", setting_value="new_value2")
     config.add_execution_settings(new_settings, overwrite=False)
     assert config.execution_settings["test"].extension_data["setting_value"] == "new_value"
+
+
+def test_add_execution_settings_no_overwrite_default_service_id():
+    config = PromptTemplateConfig(template="Example template")
+    first = PromptExecutionSettings(setting_value="first")
+    config.add_execution_settings(first)
+    assert config.execution_settings[DEFAULT_SERVICE_NAME] == first
+    config.add_execution_settings(PromptExecutionSettings(setting_value="second"), overwrite=False)
+    assert config.execution_settings[DEFAULT_SERVICE_NAME] == first
+
+
+def test_add_execution_settings_default_service_id_with_overwrite():
+    config = PromptTemplateConfig(template="Example template")
+    config.add_execution_settings(PromptExecutionSettings(setting_value="first"))
+    second = PromptExecutionSettings(setting_value="second")
+    config.add_execution_settings(second, overwrite=True)
+    assert config.execution_settings[DEFAULT_SERVICE_NAME] == second
+
+
+def test_add_execution_settings_warns_only_when_not_overwriting(caplog):
+    config = PromptTemplateConfig(template="Example template")
+    with caplog.at_level("WARNING"):
+        config.add_execution_settings(PromptExecutionSettings(service_id="test", setting_value="first"))
+        config.add_execution_settings(PromptExecutionSettings(service_id="test", setting_value="second"))
+    assert "overwrite is set to False" not in caplog.text
+    with caplog.at_level("WARNING"):
+        config.add_execution_settings(
+            PromptExecutionSettings(service_id="test", setting_value="third"), overwrite=False
+        )
+    assert "overwrite is set to False" in caplog.text
 
 
 def test_add_execution_settings_with_overwrite():
