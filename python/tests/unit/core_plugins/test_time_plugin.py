@@ -1,6 +1,7 @@
 # Copyright (c) Microsoft. All rights reserved.
 
 import datetime
+import re
 from unittest import mock
 
 from pytest import raises
@@ -174,13 +175,23 @@ def test_time_zone_offset():
     plugin = TimePlugin()
 
     with mock.patch("datetime.datetime", wraps=datetime.datetime) as dt:
-        dt.now.return_value = test_mock_now
+        dt.now.return_value = mock.Mock(astimezone=mock.Mock(return_value=test_mock_now))
         assert plugin.time_zone_offset() == "+0000"
+
+
+def test_time_zone_offset_local_time_zone():
+    # The local time zone must be resolved, a naive datetime would give an empty string.
+    assert re.fullmatch(r"[+-]\d{4}", TimePlugin().time_zone_offset())
 
 
 def test_time_zone_name():
     plugin = TimePlugin()
 
     with mock.patch("datetime.datetime", wraps=datetime.datetime) as dt:
-        dt.now.return_value = test_mock_now
+        dt.now.return_value = mock.Mock(astimezone=mock.Mock(return_value=test_mock_now))
         assert plugin.time_zone_name() == "UTC"
+
+
+def test_time_zone_name_local_time_zone():
+    # The local time zone must be resolved, a naive datetime would give an empty string.
+    assert TimePlugin().time_zone_name()
