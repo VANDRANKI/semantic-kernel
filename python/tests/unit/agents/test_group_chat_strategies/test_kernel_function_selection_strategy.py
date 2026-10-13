@@ -9,7 +9,9 @@ from semantic_kernel.agents.strategies.selection.kernel_function_selection_strat
 )
 from semantic_kernel.contents.chat_message_content import ChatMessageContent
 from semantic_kernel.exceptions.agent_exceptions import AgentExecutionException
+from semantic_kernel.functions.function_result import FunctionResult
 from semantic_kernel.functions.kernel_function import KernelFunction
+from semantic_kernel.functions.kernel_function_metadata import KernelFunctionMetadata
 from semantic_kernel.kernel import Kernel
 from tests.unit.agents.test_agent import MockAgent
 
@@ -104,3 +106,19 @@ async def test_kernel_function_selection_result_parser_is_async(agents):
 
     assert selected_agent.name == "Agent_2"
     mock_function.invoke.assert_awaited_once()
+
+
+@pytest.mark.parametrize("value", ["Agent_1", "  Agent_1 ", ["Agent_1"]])
+async def test_kernel_function_selection_default_result_parser(agents, value):
+    history = [MagicMock(spec=ChatMessageContent)]
+    mock_function = AsyncMock(spec=KernelFunction)
+    mock_function.invoke.return_value = FunctionResult(
+        function=KernelFunctionMetadata(name="f", is_prompt=False), value=value
+    )
+    mock_kernel = MagicMock(spec=Kernel)
+
+    strategy = KernelFunctionSelectionStrategy(function=mock_function, kernel=mock_kernel)
+
+    selected_agent = await strategy.next(agents, history)
+
+    assert selected_agent.name == "Agent_1"

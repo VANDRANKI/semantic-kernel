@@ -18,6 +18,7 @@ from semantic_kernel.agents.strategies.selection.selection_strategy import Selec
 from semantic_kernel.contents.chat_message_content import ChatMessageContent
 from semantic_kernel.contents.history_reducer.chat_history_reducer import ChatHistoryReducer
 from semantic_kernel.exceptions.agent_exceptions import AgentExecutionException
+from semantic_kernel.functions.function_result import FunctionResult
 from semantic_kernel.functions.kernel_arguments import KernelArguments
 from semantic_kernel.functions.kernel_function import KernelFunction
 from semantic_kernel.kernel import Kernel
@@ -27,6 +28,11 @@ if TYPE_CHECKING:
     from semantic_kernel.agents import Agent
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+def _default_result_parser(result: FunctionResult) -> str:
+    """Use the string value of the function result as the name of the next agent."""
+    return str(result).strip()
 
 
 @experimental
@@ -41,7 +47,7 @@ class KernelFunctionSelectionStrategy(SelectionStrategy):
     arguments: KernelArguments | None = None
     function: KernelFunction
     kernel: Kernel
-    result_parser: Callable[..., str] = Field(default_factory=lambda: (lambda: ""))
+    result_parser: Callable[..., str] = Field(default=_default_result_parser)
     history_reducer: ChatHistoryReducer | None = None
 
     @override

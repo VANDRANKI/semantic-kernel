@@ -10,6 +10,7 @@ from pydantic import Field
 from semantic_kernel.agents.strategies.termination.termination_strategy import TerminationStrategy
 from semantic_kernel.contents.chat_message_content import ChatMessageContent
 from semantic_kernel.contents.history_reducer.chat_history_reducer import ChatHistoryReducer
+from semantic_kernel.functions.function_result import FunctionResult
 from semantic_kernel.functions.kernel_arguments import KernelArguments
 from semantic_kernel.functions.kernel_function import KernelFunction
 from semantic_kernel.kernel import Kernel
@@ -19,6 +20,11 @@ if TYPE_CHECKING:
     from semantic_kernel.agents import Agent
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+def _default_result_parser(result: FunctionResult) -> bool:
+    """Terminate when the string value of the function result is `true` (case-insensitive)."""
+    return str(result).strip().lower() == "true"
 
 
 @experimental
@@ -33,7 +39,7 @@ class KernelFunctionTerminationStrategy(TerminationStrategy):
     arguments: KernelArguments | None = None
     function: KernelFunction
     kernel: Kernel
-    result_parser: Callable[..., bool] = Field(default_factory=lambda: (lambda: True))
+    result_parser: Callable[..., bool] = Field(default=_default_result_parser)
     history_reducer: ChatHistoryReducer | None = None
 
     async def should_agent_terminate(

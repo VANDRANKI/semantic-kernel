@@ -2,10 +2,14 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from semantic_kernel.agents.strategies import KernelFunctionTerminationStrategy
 from semantic_kernel.contents.chat_message_content import ChatMessageContent
+from semantic_kernel.functions.function_result import FunctionResult
 from semantic_kernel.functions.kernel_arguments import KernelArguments
 from semantic_kernel.functions.kernel_function import KernelFunction
+from semantic_kernel.functions.kernel_function_metadata import KernelFunctionMetadata
 from semantic_kernel.kernel import Kernel
 from tests.unit.agents.test_agent import MockAgent
 
@@ -112,3 +116,22 @@ async def test_should_agent_terminate_result_parser_awaitable():
 
     assert result is True
     mock_function.invoke.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("true", True), (" True ", True), ("TRUE", True), (True, True), ("false", False), ("yes", False), ("", False)],
+)
+async def test_should_agent_terminate_default_result_parser(value, expected):
+    agent = MockAgent(id="test-agent-id")
+    history = [MagicMock(spec=ChatMessageContent)]
+
+    mock_function = AsyncMock(spec=KernelFunction)
+    mock_function.invoke.return_value = FunctionResult(
+        function=KernelFunctionMetadata(name="f", is_prompt=False), value=value
+    )
+    mock_kernel = MagicMock(spec=Kernel)
+
+    strategy = KernelFunctionTerminationStrategy(agents=[agent], function=mock_function, kernel=mock_kernel)
+
+    assert await strategy.should_agent_terminate(agent, history) is expected
