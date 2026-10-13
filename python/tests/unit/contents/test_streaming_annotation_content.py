@@ -1,6 +1,6 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-from xml.etree.ElementTree import Element
+from xml.etree.ElementTree import Element, fromstring, tostring
 
 import pytest
 
@@ -144,3 +144,13 @@ def test_to_dict_call(annotation):
         "text": expected_text,
     }
     assert annotation.to_dict() == expected_dict
+
+
+@pytest.mark.parametrize("citation_type", list(CitationType))
+def test_serialized_element_roundtrip(citation_type):
+    annotation = StreamingAnnotationContent(
+        file_id="12345", quote="q", start_index=0, end_index=2, citation_type=citation_type
+    )
+    xml = tostring(annotation.to_element(), encoding="unicode")
+    assert f'type="{citation_type.value}"' in xml
+    assert StreamingAnnotationContent.from_element(fromstring(xml)) == annotation
