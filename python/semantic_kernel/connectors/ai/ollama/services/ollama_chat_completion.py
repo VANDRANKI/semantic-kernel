@@ -201,17 +201,24 @@ class OllamaChatCompletion(OllamaBase, ChatCompletionClientBase):
                 f"Expected AsyncIterator but got {type(response_object)}."
             )
 
+        # Ollama sends every tool call complete and in its own chunk, without an id or index. Number them here,
+        # otherwise the chunks are merged into one call when the stream is combined.
+        tool_call_index = 0
         async for part in response_object:
             if isinstance(part, ChatResponse):
-                yield [self._create_streaming_chat_message_content_from_chat_response(part, function_invoke_attempt)]
-                continue
-            if isinstance(part, Mapping):
-                yield [self._create_streaming_chat_message_content(part, function_invoke_attempt)]
-                continue
-            raise ServiceInvalidResponseError(
-                "Invalid response type from Ollama streaming chat completion. "
-                f"Expected mapping or ChatResponse but got {type(part)}."
-            )
+                content = self._create_streaming_chat_message_content_from_chat_response(part, function_invoke_attempt)
+            elif isinstance(part, Mapping):
+                content = self._create_streaming_chat_message_content(part, function_invoke_attempt)
+            else:
+                raise ServiceInvalidResponseError(
+                    "Invalid response type from Ollama streaming chat completion. "
+                    f"Expected mapping or ChatResponse but got {type(part)}."
+                )
+            for item in content.items:
+                if isinstance(item, FunctionCallContent):
+                    item.index = tool_call_index
+                    tool_call_index += 1
+            yield [content]
 
     # endregion
 

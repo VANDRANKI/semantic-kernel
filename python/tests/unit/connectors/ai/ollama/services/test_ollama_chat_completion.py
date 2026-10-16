@@ -1,11 +1,14 @@
 # Copyright (c) Microsoft. All rights reserved.
 
 from collections.abc import AsyncGenerator
+from functools import reduce
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 from ollama import AsyncClient
+from ollama._types import ChatResponse, Message
 
 import semantic_kernel.connectors.ai.ollama.services.ollama_chat_completion as occ_module
 from semantic_kernel.connectors.ai.completion_usage import CompletionUsage
@@ -451,3 +454,73 @@ async def test_streaming_chat_response_branch(
 
     # Only one batch should be collected
     assert len(collected) == 1
+
+
+def _tool_call_chunk(city: str, as_mapping: bool) -> Any:
+    """Build one streamed chunk that carries a single, complete tool call, like Ollama sends them."""
+    if as_mapping:
+        return {
+            "model": "m",
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{"function": {"name": "get_weather", "arguments": {"city": city}}}],
+            },
+        }
+    return ChatResponse(
+        model="m",
+        message=Message(
+            role="assistant",
+            content="",
+            tool_calls=[
+                Message.ToolCall(function=Message.ToolCall.Function(name="get_weather", arguments={"city": city}))
+            ],
+        ),
+    )
+
+
+@pytest.mark.parametrize("as_mapping", [True, False], ids=["mapping", "chat_response"])
+@patch("ollama.AsyncClient.chat", new_callable=AsyncMock)
+async def test_streaming_parallel_tool_calls_stay_separate(
+    mock_chat: AsyncMock, model_id: str, chat_history, as_mapping: bool
+) -> None:
+    """Tool calls that arrive in separate chunks are separate calls once the stream is combined."""
+
+    async def fake_stream() -> AsyncGenerator[Any, None]:
+        yield _tool_call_chunk("Paris", as_mapping)
+        yield _tool_call_chunk("Tokyo", as_mapping)
+        yield {"model": "m", "message": {"role": "assistant", "content": ""}, "done": True}
+
+    mock_chat.return_value = fake_stream()
+
+    ollama = OllamaChatCompletion(ai_model_id=model_id)
+    settings = OllamaChatPromptExecutionSettings(service_id="test_service_id")
+
+    chunks: list[StreamingChatMessageContent] = []
+    async for batch in ollama.get_streaming_chat_message_contents(chat_history, settings):
+        chunks.extend(batch)
+
+    full = reduce(lambda x, y: x + y, chunks)
+    calls = [item for item in full.items if isinstance(item, FunctionCallContent)]
+    assert [call.arguments for call in calls] == [{"city": "Paris"}, {"city": "Tokyo"}]
+    assert [call.function_name for call in calls] == ["get_weather", "get_weather"]
+
+
+@patch("ollama.AsyncClient.chat", new_callable=AsyncMock)
+async def test_streaming_tool_call_index_restarts_per_request(
+    mock_chat: AsyncMock, model_id: str, chat_history
+) -> None:
+    """The tool call numbering starts at zero for every streaming request."""
+
+    async def fake_stream() -> AsyncGenerator[Any, None]:
+        yield _tool_call_chunk("Paris", True)
+
+    ollama = OllamaChatCompletion(ai_model_id=model_id)
+    settings = OllamaChatPromptExecutionSettings(service_id="test_service_id")
+
+    for _ in range(2):
+        mock_chat.return_value = fake_stream()
+        indexes = []
+        async for batch in ollama.get_streaming_chat_message_contents(chat_history, settings):
+            indexes.extend(item.index for item in batch[0].items if isinstance(item, FunctionCallContent))
+        assert indexes == [0]
