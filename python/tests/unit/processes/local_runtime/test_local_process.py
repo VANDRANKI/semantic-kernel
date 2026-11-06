@@ -8,6 +8,7 @@ import pytest
 
 from semantic_kernel.exceptions.kernel_exceptions import KernelException
 from semantic_kernel.exceptions.process_exceptions import ProcessEventUndefinedException
+from semantic_kernel.functions import kernel_function
 from semantic_kernel.kernel import Kernel
 from semantic_kernel.processes.kernel_process.kernel_process import KernelProcess
 from semantic_kernel.processes.kernel_process.kernel_process_edge import KernelProcessEdge
@@ -16,10 +17,13 @@ from semantic_kernel.processes.kernel_process.kernel_process_event import (
     KernelProcessEventVisibility,
 )
 from semantic_kernel.processes.kernel_process.kernel_process_state import KernelProcessState
+from semantic_kernel.processes.kernel_process.kernel_process_step import KernelProcessStep
 from semantic_kernel.processes.kernel_process.kernel_process_step_info import KernelProcessStepInfo
+from semantic_kernel.processes.local_runtime.local_kernel_process import start
 from semantic_kernel.processes.local_runtime.local_message import LocalMessage
 from semantic_kernel.processes.local_runtime.local_process import LocalProcess
 from semantic_kernel.processes.local_runtime.local_step import LocalStep
+from semantic_kernel.processes.process_builder import ProcessBuilder
 
 
 @pytest.fixture
@@ -356,3 +360,30 @@ def mock_process_with_steps(mock_process, mock_kernel, build_model):
 
     local_process.steps = [step_1, step_2]
     return local_process
+
+
+class _StepWithResetAndAdd(KernelProcessStep):
+    calls: list[tuple] = []
+
+    @kernel_function
+    async def reset(self) -> str:
+        type(self).calls.append(("reset",))
+        return "reset"
+
+    @kernel_function
+    async def add(self, a: str, b: str) -> str:
+        type(self).calls.append(("add", a, b))
+        return f"{a}{b}"
+
+
+async def test_process_runs_step_with_a_function_without_inputs_next_to_one_with_two():
+    """A step with a no-input function and a two-input function runs the two-input one once both inputs arrived."""
+    _StepWithResetAndAdd.calls = []
+    builder = ProcessBuilder(name="fan_in")
+    step = builder.add_step(_StepWithResetAndAdd)
+    builder.on_input_event("go").send_event_to(step, function_name="add", parameter_name="a")
+    builder.on_input_event("go").send_event_to(step, function_name="add", parameter_name="b")
+
+    await start(process=builder.build(), kernel=Kernel(), initial_event=KernelProcessEvent(id="go", data="x"))
+
+    assert _StepWithResetAndAdd.calls == [("add", "x", "x")]
